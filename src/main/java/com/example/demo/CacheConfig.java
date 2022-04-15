@@ -2,6 +2,8 @@ package com.example.demo;
 
 import java.lang.reflect.Method;
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CachingConfigurerSupport;
@@ -12,6 +14,7 @@ import org.springframework.cache.interceptor.SimpleKey;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
 @Configuration
@@ -24,11 +27,22 @@ public class CacheConfig extends CachingConfigurerSupport {
     @Override
     public CacheManager cacheManager() {
         var cacheManager = new CaffeineCacheManager();
-        var caffeine = Caffeine.newBuilder().refreshAfterWrite(CACHE_DURATION);
-        cacheManager.setCaffeine(caffeine);
-        cacheManager.setCacheLoader(key -> {
-            var cacheKey = (CacheKey) key;
-            return cacheKey.method.invoke(cacheKey.target, cacheKey.params);
+        cacheManager.setCaffeine(Caffeine.newBuilder().refreshAfterWrite(CACHE_DURATION));
+        cacheManager.setCacheLoader(new CacheLoader<>() {
+            @Override
+            public Object load(Object key) throws Exception {
+                var cacheKey = (CacheKey) key;
+                return cacheKey.method.invoke(cacheKey.target, cacheKey.params);
+            }
+
+            @Override
+            public CompletableFuture<Object> asyncReload(Object key, Object oldValue, Executor executor) {
+                try {
+                    return CompletableFuture.completedFuture(load(key));
+                } catch (Exception e) {
+                    return CompletableFuture.failedFuture(e);
+                }
+            }
         });
         return cacheManager;
     }
